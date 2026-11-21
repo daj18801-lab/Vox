@@ -24,15 +24,14 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install dependencies & build web app
+      - name: Wrap Firebase web folder & build APK
         run: |
-          npm install
-          npm run build
-
-      - name: Wrap with Capacitor & build APK
-        run: |
+          WEB_DIR=$(grep -o '"public"[[:space:]]*:[[:space:]]*"[^"]*"' firebase.json | head -n 1 | cut -d'"' -f4)
+          WEB_DIR=${WEB_DIR:-public}
+          echo "Using web directory: $WEB_DIR"
+          npm init -y
           npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "AIStudioApp" "com.example.aistudioapp" --web-dir=dist
+          npx cap init "Vox" "com.example.vox" --web-dir="$WEB_DIR"
           npx cap add android
           npx cap sync android
           cd android
