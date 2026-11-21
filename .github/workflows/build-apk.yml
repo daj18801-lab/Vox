@@ -13,63 +13,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Auto-detect project, build, & package APK
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: wrapper
+
+      - name: Build Debug APK
         run: |
-          echo "=== Repository Files ==="
-          find . -maxdepth 3 -not -path '*/.*' -not -path './node_modules*'
-
-          # 1. If a package.json exists in root or a subfolder, install and build it
-          PKG_FILE=$(find . -maxdepth 2 -name "package.json" -not -path "./node_modules/*" | head -n 1)
-          if [ -n "$PKG_FILE" ]; then
-            APP_DIR=$(dirname "$PKG_FILE")
-            echo "Found package.json in $APP_DIR — installing & building..."
-            (cd "$APP_DIR" && npm install && npm run build)
+          if [ -f "./gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug
+          else
+            gradle assembleDebug
           fi
-
-          # 2. Locate the built web folder (dist, build, public, or www) containing index.html
-          WEB_DIR=""
-          for candidate in dist build public www app/dist app/build; do
-            if [ -f "$candidate/index.html" ]; then
-              WEB_DIR="$candidate"
-              break
-            fi
-          done
-
-          # 3. Fallback: if index.html is in the root folder, copy web files into www/
-          if [ -z "$WEB_DIR" ] && [ -f "index.html" ]; then
-            mkdir -p www
-            find . -maxdepth 1 -not -name "." -not -name ".*" -not -name "node_modules" -not -name "www" -not -name "android" -exec cp -r {} www/ \;
-            WEB_DIR="www"
-          fi
-
-          if [ -z "$WEB_DIR" ]; then
-            echo "ERROR: Could not find index.html anywhere in the repository."
-            exit 1
-          fi
-
-          echo "Packaging web directory: $WEB_DIR"
-          [ ! -f package.json ] && npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "Vox" "com.example.vox" --web-dir="$WEB_DIR"
-          npx cap add android
-          npx cap sync android
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
