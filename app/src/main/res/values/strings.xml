@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">VoxStage</string>
+    <string name="auth_tagline">Live voice stages, video rooms, and real-time chat — protected by built-in moderation.</string>
+    <string name="auth_sign_in_google">Sign in with Google</string>
+    <string name="auth_feature_voice">Push-to-Talk &amp; Open Mic Stages</string>
+    <string name="auth_feature_video">Live CameraX Video Streaming</string>
+    <string name="auth_feature_safety">Auto-Mod, Slow Mode &amp; Host Shield</string>
+    <string name="nav_discover">Rooms</string>
+    <string name="nav_safety">Safety</string>
+    <string name="nav_profile">Studio</string>
+    <string name="action_create_room">Go Live</string>
+    <string name="action_join_room">Join Stage</string>
+    <string name="action_leave_room">Leave</string>
+    <string name="action_sign_out">Sign Out</string>
+    <string name="label_live">LIVE</string>
+    <string name="label_on_air">ON AIR</string>
+    <string name="label_auto_mod">Auto-Mod</string>
+    <string name="label_room_locked">Locked</string>
+    <string name="label_slow_mode">Slow Mode</string>
+    <string name="hint_search_rooms">Search rooms, topics, or hosts…</string>
+    <string name="hint_send_message">Message the room…</string>
+    <string name="empty_rooms_title">No live rooms yet</string>
+    <string name="empty_rooms_subtitle">Launch the first live voice and video stage right now.</string>
+    <string name="empty_reports_title">All clear</string>
+    <string name="empty_reports_subtitle">No safety reports filed or pending review for your rooms.</string>
+    <string name="error_camera_permission">Camera permission is needed to broadcast live video on stage.</string>
+    <string name="error_mic_permission">Microphone permission is needed to speak on the voice stage.</string>
+</resources>
