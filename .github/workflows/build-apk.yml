@@ -24,12 +24,42 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Wrap Firebase web folder & build APK
+      - name: Auto-detect project, build, & package APK
         run: |
-          WEB_DIR=$(grep -o '"public"[[:space:]]*:[[:space:]]*"[^"]*"' firebase.json | head -n 1 | cut -d'"' -f4)
-          WEB_DIR=${WEB_DIR:-public}
-          echo "Using web directory: $WEB_DIR"
-          npm init -y
+          echo "=== Repository Files ==="
+          find . -maxdepth 3 -not -path '*/.*' -not -path './node_modules*'
+
+          # 1. If a package.json exists in root or a subfolder, install and build it
+          PKG_FILE=$(find . -maxdepth 2 -name "package.json" -not -path "./node_modules/*" | head -n 1)
+          if [ -n "$PKG_FILE" ]; then
+            APP_DIR=$(dirname "$PKG_FILE")
+            echo "Found package.json in $APP_DIR — installing & building..."
+            (cd "$APP_DIR" && npm install && npm run build)
+          fi
+
+          # 2. Locate the built web folder (dist, build, public, or www) containing index.html
+          WEB_DIR=""
+          for candidate in dist build public www app/dist app/build; do
+            if [ -f "$candidate/index.html" ]; then
+              WEB_DIR="$candidate"
+              break
+            fi
+          done
+
+          # 3. Fallback: if index.html is in the root folder, copy web files into www/
+          if [ -z "$WEB_DIR" ] && [ -f "index.html" ]; then
+            mkdir -p www
+            find . -maxdepth 1 -not -name "." -not -name ".*" -not -name "node_modules" -not -name "www" -not -name "android" -exec cp -r {} www/ \;
+            WEB_DIR="www"
+          fi
+
+          if [ -z "$WEB_DIR" ]; then
+            echo "ERROR: Could not find index.html anywhere in the repository."
+            exit 1
+          fi
+
+          echo "Packaging web directory: $WEB_DIR"
+          [ ! -f package.json ] && npm init -y
           npm install @capacitor/core @capacitor/cli @capacitor/android
           npx cap init "Vox" "com.example.vox" --web-dir="$WEB_DIR"
           npx cap add android
