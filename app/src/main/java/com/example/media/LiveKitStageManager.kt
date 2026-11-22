@@ -1,9 +1,12 @@
 package com.example.media
 
 import android.content.Context
+import android.media.AudioManager
 import android.util.Log
 import com.example.BuildConfig
+import io.livekit.android.ConnectOptions
 import io.livekit.android.LiveKit
+import io.livekit.android.RoomOptions
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
 import io.livekit.android.room.Room
@@ -57,6 +60,21 @@ class LiveKitStageManager(context: Context) {
     private val _connectionError = MutableStateFlow<String?>(null)
     val connectionError: StateFlow<String?> = _connectionError.asStateFlow()
 
+    private fun enableCommunicationAudio(enable: Boolean) {
+        try {
+            val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            if (enable) {
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+                audioManager.isSpeakerphoneOn = true
+            } else {
+                audioManager.isSpeakerphoneOn = false
+                audioManager.mode = AudioManager.MODE_NORMAL
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "AudioManager mode update failed: ${e.message}")
+        }
+    }
+
     fun connectIfNeeded(roomId: String, userId: String, displayName: String) {
         if (connectedRoomId == roomId && (isRoomConnected || connectJob?.isActive == true)) return
         disconnect()
@@ -66,7 +84,15 @@ class LiveKitStageManager(context: Context) {
 
         connectJob = scope.launch {
             try {
-                val room = LiveKit.create(appContext)
+                enableCommunicationAudio(true)
+
+                val room = LiveKit.create(
+                    appContext = appContext,
+                    options = RoomOptions(
+                        adaptiveStream = true,
+                        dynacast = true
+                    )
+                )
                 lkRoom = room
                 _roomInstance.value = room
 
@@ -97,7 +123,8 @@ class LiveKitStageManager(context: Context) {
 
                 room.connect(
                     url = credentials.serverUrl,
-                    token = credentials.participantToken
+                    token = credentials.participantToken,
+                    options = ConnectOptions(autoSubscribe = true)
                 )
 
                 isRoomConnected = true
@@ -115,9 +142,7 @@ class LiveKitStageManager(context: Context) {
 
     suspend fun setMicrophoneEnabled(enabled: Boolean) {
         try {
-            // Wait for room.connect() to finish if it's still connecting
             connectJob?.join()
-
             val room = lkRoom
             if (room == null || !isRoomConnected) {
                 if (enabled) {
@@ -126,6 +151,7 @@ class LiveKitStageManager(context: Context) {
                 }
                 return
             }
+            enableCommunicationAudio(true)
             room.localParticipant.setMicrophoneEnabled(enabled)
             if (!enabled) _speakingAmplitude.value = 0f
         } catch (e: Exception) {
@@ -136,9 +162,7 @@ class LiveKitStageManager(context: Context) {
 
     suspend fun setCameraEnabled(enabled: Boolean, useFrontCamera: Boolean) {
         try {
-            // Wait for room.connect() to finish if it's still connecting
             connectJob?.join()
-
             val room = lkRoom
             if (room == null || !isRoomConnected) {
                 if (enabled) {
@@ -223,6 +247,7 @@ class LiveKitStageManager(context: Context) {
         _localVideoTrack.value = null
         _remoteVideoFeeds.value = emptyList()
         _speakingAmplitude.value = 0f
+        enableCommunicationAudio(false)
         try {
             lkRoom?.disconnect()
             lkRoom?.release()
