@@ -76,12 +76,12 @@ class LiveKitStageManager(context: Context) {
                         when (event) {
                             is RoomEvent.TrackSubscribed,
                             is RoomEvent.TrackUnsubscribed,
+                            is RoomEvent.TrackPublished,
+                            is RoomEvent.TrackUnpublished,
                             is RoomEvent.TrackMuted,
                             is RoomEvent.TrackUnmuted,
                             is RoomEvent.ParticipantDisconnected,
-                            is RoomEvent.ParticipantConnected,
-                            is RoomEvent.LocalTrackPublished,
-                            is RoomEvent.LocalTrackUnpublished -> refreshTracks()
+                            is RoomEvent.ParticipantConnected -> refreshTracks()
                             else -> Unit
                         }
                     }
