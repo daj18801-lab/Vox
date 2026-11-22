@@ -36,9 +36,11 @@ class LiveKitStageManager(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var lkRoom: Room? = null
+    private var connectJob: Job? = null
     private var eventJob: Job? = null
     private var meterJob: Job? = null
     private var connectedRoomId: String? = null
+    private var isRoomConnected = false
 
     private val _roomInstance = MutableStateFlow<Room?>(null)
     val roomInstance: StateFlow<Room?> = _roomInstance.asStateFlow()
@@ -56,17 +58,13 @@ class LiveKitStageManager(context: Context) {
     val connectionError: StateFlow<String?> = _connectionError.asStateFlow()
 
     fun connectIfNeeded(roomId: String, userId: String, displayName: String) {
-        if (connectedRoomId == roomId && lkRoom != null) return
+        if (connectedRoomId == roomId && (isRoomConnected || connectJob?.isActive == true)) return
         disconnect()
         connectedRoomId = roomId
 
-        val tokenServerId = BuildConfig.LIVEKIT_TOKEN_SERVER_ID.trim()
-        if (tokenServerId.isEmpty()) {
-            _connectionError.value = "Missing LIVEKIT_TOKEN_SERVER_ID in build config."
-            return
-        }
+        val tokenServerId = BuildConfig.LIVEKIT_TOKEN_SERVER_ID.trim().ifEmpty { "vox-2qnude" }
 
-        scope.launch {
+        connectJob = scope.launch {
             try {
                 val room = LiveKit.create(appContext)
                 lkRoom = room
@@ -101,11 +99,15 @@ class LiveKitStageManager(context: Context) {
                     url = credentials.serverUrl,
                     token = credentials.participantToken
                 )
+
+                isRoomConnected = true
                 _connectionError.value = null
                 refreshTracks()
                 startSpeakingLevelLoop()
             } catch (e: Exception) {
                 Log.e(TAG, "LiveKit connect failed", e)
+                isRoomConnected = false
+                connectedRoomId = null
                 _connectionError.value = "Media server error: ${e.message}"
             }
         }
@@ -113,8 +115,15 @@ class LiveKitStageManager(context: Context) {
 
     suspend fun setMicrophoneEnabled(enabled: Boolean) {
         try {
-            val room = lkRoom ?: run {
-                if (enabled) _connectionError.value = "Mic failed: Not connected to LiveKit room yet."
+            // Wait for room.connect() to finish if it's still connecting
+            connectJob?.join()
+
+            val room = lkRoom
+            if (room == null || !isRoomConnected) {
+                if (enabled) {
+                    _connectionError.value = _connectionError.value
+                        ?: "Mic failed: LiveKit room is not connected."
+                }
                 return
             }
             room.localParticipant.setMicrophoneEnabled(enabled)
@@ -127,8 +136,15 @@ class LiveKitStageManager(context: Context) {
 
     suspend fun setCameraEnabled(enabled: Boolean, useFrontCamera: Boolean) {
         try {
-            val room = lkRoom ?: run {
-                if (enabled) _connectionError.value = "Camera failed: Not connected to LiveKit room yet."
+            // Wait for room.connect() to finish if it's still connecting
+            connectJob?.join()
+
+            val room = lkRoom
+            if (room == null || !isRoomConnected) {
+                if (enabled) {
+                    _connectionError.value = _connectionError.value
+                        ?: "Camera failed: LiveKit room is not connected."
+                }
                 return
             }
             val local = room.localParticipant
@@ -164,7 +180,6 @@ class LiveKitStageManager(context: Context) {
             .getTrackPublication(Track.Source.CAMERA)?.track as? VideoTrack
         _localVideoTrack.value = if (room.localParticipant.isCameraEnabled) localCam else null
 
-
         val remotes = room.remoteParticipants.values.mapNotNull { remote ->
             val pub = remote.getTrackPublication(Track.Source.CAMERA)
             val vTrack = pub?.track as? VideoTrack
@@ -187,7 +202,6 @@ class LiveKitStageManager(context: Context) {
             while (isActive) {
                 val local = lkRoom?.localParticipant
                 _speakingAmplitude.value = if (local != null && local.isMicrophoneEnabled) {
-
                     local.audioLevel.coerceIn(0f, 1f)
                 } else {
                     0f
@@ -198,11 +212,14 @@ class LiveKitStageManager(context: Context) {
     }
 
     fun disconnect() {
+        connectJob?.cancel()
+        connectJob = null
         meterJob?.cancel()
         meterJob = null
         eventJob?.cancel()
         eventJob = null
-                connectedRoomId = null
+        isRoomConnected = false
+        connectedRoomId = null
         _localVideoTrack.value = null
         _remoteVideoFeeds.value = emptyList()
         _speakingAmplitude.value = 0f
@@ -224,4 +241,3 @@ class LiveKitStageManager(context: Context) {
         const val TAG = "LiveKitStageManager"
     }
 }
-
