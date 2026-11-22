@@ -203,6 +203,17 @@ fun RoomScreen(
     BackHandler {
         viewModel.leaveRoomAndExit(onExitRoom)
     }
+    LaunchedEffect(context) {
+        viewModel.attachMediaContext(context)
+    }
+
+    LaunchedEffect(staffCapabilities) {
+        viewModel.updateStaffCapabilities(staffCapabilities)
+    }
+
+    LaunchedEffect(userProfile) {
+        viewModel.onUserProfileUpdated(userProfile)
+    }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { msg ->
