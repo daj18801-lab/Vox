@@ -81,6 +81,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.ChatMessage
@@ -92,7 +93,7 @@ import com.example.data.StaffCapabilities
 import com.example.data.StaffTier
 import com.example.data.UiState
 import com.example.data.UserProfile
-import com.example.media.LiveCameraPreview
+import com.example.media.RemoteVideoFeed
 import com.example.ui.components.LivePulseBadge
 import com.example.ui.components.RolePillBadge
 import com.example.ui.components.SafetyTagChip
@@ -106,6 +107,9 @@ import com.example.ui.theme.ModAmber
 import com.example.ui.theme.SafetyEmerald
 import com.example.ui.theme.VoiceCyan
 import com.example.viewmodel.RoomViewModel
+import io.livekit.android.renderer.SurfaceViewRenderer
+import io.livekit.android.room.Room
+import io.livekit.android.room.track.VideoTrack
 
 private data class ActionTarget(
     val userId: String,
@@ -130,6 +134,9 @@ fun RoomScreen(
     val participantsState by viewModel.participantsState.collectAsStateWithLifecycle()
     val messagesState by viewModel.messagesState.collectAsStateWithLifecycle()
     val modLogsState by viewModel.modLogsState.collectAsStateWithLifecycle()
+    val liveKitRoom by viewModel.liveKitRoom.collectAsStateWithLifecycle()
+    val localVideoTrack by viewModel.localVideoTrack.collectAsStateWithLifecycle()
+    val remoteVideoFeeds by viewModel.remoteVideoFeeds.collectAsStateWithLifecycle()
     val isMicActive by viewModel.isMicActive.collectAsStateWithLifecycle()
     val isCamActive by viewModel.isCamActive.collectAsStateWithLifecycle()
     val useFrontCamera by viewModel.useFrontCamera.collectAsStateWithLifecycle()
@@ -149,6 +156,10 @@ fun RoomScreen(
     var editUserProfileTarget by remember { mutableStateOf<UserProfile?>(null) }
     var stageExpanded by remember { mutableStateOf(true) }
     var messageInput by remember { mutableStateOf("") }
+
+    LaunchedEffect(context) {
+        viewModel.attachMediaContext(context)
+    }
 
     LaunchedEffect(staffCapabilities) {
         viewModel.updateStaffCapabilities(staffCapabilities)
@@ -202,17 +213,6 @@ fun RoomScreen(
 
     BackHandler {
         viewModel.leaveRoomAndExit(onExitRoom)
-    }
-    LaunchedEffect(context) {
-        viewModel.attachMediaContext(context)
-    }
-
-    LaunchedEffect(staffCapabilities) {
-        viewModel.updateStaffCapabilities(staffCapabilities)
-    }
-
-    LaunchedEffect(userProfile) {
-        viewModel.onUserProfileUpdated(userProfile)
     }
 
     LaunchedEffect(Unit) {
@@ -399,6 +399,9 @@ fun RoomScreen(
                                         room = activeRoom,
                                         participants = visibleParticipants,
                                         currentUserId = viewModel.currentUserId,
+                                        liveKitRoom = liveKitRoom,
+                                        localVideoTrack = localVideoTrack,
+                                        remoteVideoFeeds = remoteVideoFeeds,
                                         isCamActive = isCamActive,
                                         useFrontCamera = useFrontCamera,
                                         isMicActive = isMicActive,
@@ -438,6 +441,9 @@ fun RoomScreen(
                                         room = activeRoom,
                                         participants = visibleParticipants,
                                         currentUserId = viewModel.currentUserId,
+                                        liveKitRoom = liveKitRoom,
+                                        localVideoTrack = localVideoTrack,
+                                        remoteVideoFeeds = remoteVideoFeeds,
                                         isCamActive = isCamActive,
                                         useFrontCamera = useFrontCamera,
                                         isMicActive = isMicActive,
@@ -757,6 +763,32 @@ fun RoomScreen(
 }
 
 @Composable
+private fun LiveKitTrackRenderer(
+    room: Room,
+    videoTrack: VideoTrack,
+    mirror: Boolean,
+    modifier: Modifier = Modifier
+) {
+    AndroidView(
+        factory = { ctx ->
+            SurfaceViewRenderer(ctx).apply {
+                room.initVideoRenderer(this)
+                setMirror(mirror)
+                videoTrack.addRenderer(this)
+            }
+        },
+        update = { renderer ->
+            renderer.setMirror(mirror)
+        },
+        onRelease = { renderer ->
+            videoTrack.removeRenderer(renderer)
+            renderer.release()
+        },
+        modifier = modifier
+    )
+}
+
+@Composable
 private fun RoomTopBar(
     room: ChatRoom,
     participantCount: Int,
@@ -902,6 +934,9 @@ private fun StageSection(
     room: ChatRoom,
     participants: List<RoomParticipant>,
     currentUserId: String,
+    liveKitRoom: Room?,
+    localVideoTrack: VideoTrack?,
+    remoteVideoFeeds: List<RemoteVideoFeed>,
     isCamActive: Boolean,
     useFrontCamera: Boolean,
     isMicActive: Boolean,
@@ -956,15 +991,57 @@ private fun StageSection(
             if (expanded) {
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (isCamActive) {
+                // Remote Speakers' Live Video Streams
+                if (liveKitRoom != null && remoteVideoFeeds.isNotEmpty()) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(remoteVideoFeeds, key = { it.userId }) { feed ->
+                            Box(
+                                modifier = Modifier
+                                    .width(220.dp)
+                                    .height(172.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                            ) {
+                                LiveKitTrackRenderer(
+                                    room = liveKitRoom,
+                                    videoTrack = feed.track,
+                                    mirror = false,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = Color(0xBB0A0D16),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(8.dp)
+                                ) {
+                                    Text(
+                                        text = feed.displayName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                // Local LiveKit Video Stream
+                if (isCamActive && liveKitRoom != null && localVideoTrack != null) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(172.dp)
                             .clip(RoundedCornerShape(16.dp))
                     ) {
-                        LiveCameraPreview(
-                            useFrontCamera = useFrontCamera,
+                        LiveKitTrackRenderer(
+                            room = liveKitRoom,
+                            videoTrack = localVideoTrack,
+                            mirror = useFrontCamera,
                             modifier = Modifier.fillMaxSize()
                         )
                         Row(
@@ -996,561 +1073,4 @@ private fun StageSection(
 
                         if (isMicActive) {
                             Surface(
-                                shape = RoundedCornerShape(999.dp),
-                                color = Color(0xBB0A0D16),
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    VoiceWaveformBars(amplitude = liveAmplitude, active = true)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "MIC LIVE",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = VoiceCyan
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                }
-
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(vertical = 2.dp)
-                ) {
-                    items(stageParticipants, key = { it.userId }) { p ->
-                        val isSelf = p.userId == currentUserId
-                        val effectiveAmp = if (isSelf) liveAmplitude else p.speakingLevel.toFloat()
-                        val effectiveMic = if (isSelf) isMicActive else p.micActive
-                        val effectiveCam = if (isSelf) isCamActive else p.camActive
-                        val tier = p.staffTierEnum()
-
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(
-                                width = if (effectiveMic) 1.5.dp else 1.dp,
-                                color = if (effectiveMic) VoiceCyan else MaterialTheme.colorScheme.outlineVariant
-                            ),
-                            modifier = Modifier
-                                .width(120.dp)
-                                .clickable { onSelectParticipant(p) }
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(10.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.BottomEnd) {
-                                    SpeakingAvatarCircle(
-                                        displayName = p.displayName,
-                                        colorHex = p.avatarColorHex,
-                                        speakingLevel = effectiveAmp,
-                                        micActive = effectiveMic,
-                                        size = 52.dp
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                when {
-                                                    p.mutedByMod -> LiveCoral
-                                                    effectiveCam -> LiveCoral
-                                                    effectiveMic -> VoiceCyan
-                                                    else -> MaterialTheme.colorScheme.surfaceVariant
-                                                }
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = when {
-                                                p.mutedByMod -> Icons.Rounded.MicOff
-                                                effectiveCam -> Icons.Rounded.Videocam
-                                                effectiveMic -> Icons.Rounded.Mic
-                                                else -> Icons.Rounded.MicOff
-                                            },
-                                            contentDescription = "Media status",
-                                            tint = if (effectiveMic || effectiveCam || p.mutedByMod) Color.White
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                    }
-                                }
-
-                                Text(
-                                    text = if (isSelf) "${p.displayName} (You)" else p.displayName,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = usernameColor(tier),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (tier != StaffTier.USER) {
-                                    StaffTierBadge(tier = tier)
-                                }
-                                RolePillBadge(role = p.roleEnum())
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatTimelineSection(
-    room: ChatRoom,
-    messages: List<ChatMessage>,
-    currentUserId: String,
-    onTapMessage: (ChatMessage) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val listState = rememberLazyListState()
-
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
-        }
-    }
-
-    Column(modifier = modifier) {
-        if (room.topic.isNotBlank()) {
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "Room Rules: ${room.topic}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-
-        if (messages.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Say hello to kick off the live chat! Tap any message to moderate or report.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(messages, key = { it.id }) { msg ->
-                    ChatMessageBubble(
-                        message = msg,
-                        isMine = msg.senderId == currentUserId,
-                        onClick = { onTapMessage(msg) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatMessageBubble(
-    message: ChatMessage,
-    isMine: Boolean,
-    onClick: () -> Unit
-) {
-    val type = message.messageTypeEnum()
-
-    if (type == MessageType.MOD_NOTICE || type == MessageType.JOIN_LEAVE) {
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                shape = RoundedCornerShape(999.dp),
-                color = if (type == MessageType.MOD_NOTICE) ModAmber.copy(alpha = 0.16f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-            ) {
-                Text(
-                    text = message.text,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (type == MessageType.MOD_NOTICE) ModAmber
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                )
-            }
-        }
-        return
-    }
-
-    val role = ParticipantRole.fromRaw(message.senderRole)
-    val senderTier = message.senderTierEnum()
-
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = if (isMine) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
-        } else {
-            MaterialTheme.colorScheme.surface
-        },
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (message.flaggedByAutoMod) ModAmber.copy(alpha = 0.5f)
-            else MaterialTheme.colorScheme.outlineVariant
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = if (isMine) "${message.senderName} (You)" else message.senderName,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = usernameColor(senderTier),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    StaffTierBadge(tier = senderTier)
-                    if (role == ParticipantRole.HOST || role == ParticipantRole.MODERATOR) {
-                        RolePillBadge(role = role)
-                    }
-                    if (message.flaggedByAutoMod) {
-                        Text(
-                            text = "FILTERED",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = ModAmber
-                        )
-                    }
-                }
-                Text(
-                    text = formatTimestampShort(message.createdAt),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Text(
-                text = message.text,
-                style = if (type == MessageType.REACTION) MaterialTheme.typography.headlineSmall
-                else MaterialTheme.typography.bodyMedium,
-                fontStyle = if (message.deletedByMod) FontStyle.Italic else FontStyle.Normal,
-                color = if (message.deletedByMod) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurface
-            )
-        }
-    }
-}
-
-@Composable
-private fun RoomBottomDock(
-    room: ChatRoom,
-    currentUserId: String,
-    userProfile: UserProfile,
-    staffCapabilities: StaffCapabilities,
-    isCurrentlyInvisible: Boolean,
-    messageInput: String,
-    onMessageInputChange: (String) -> Unit,
-    slowModeCountdown: Int,
-    isMicActive: Boolean,
-    isCamActive: Boolean,
-    isHandRaised: Boolean,
-    pushToTalkMode: Boolean,
-    liveAmplitude: Float,
-    onSend: () -> Unit,
-    onSendReaction: (String) -> Unit,
-    onToggleMicMode: () -> Unit,
-    onMicStateChange: (Boolean) -> Unit,
-    onToggleCamera: () -> Unit,
-    onToggleRaiseHand: () -> Unit
-) {
-    val isMuted = !staffCapabilities.isAdmin && room.mutedUserIds.contains(currentUserId)
-    val micBlockedReason: String? = when {
-        !staffCapabilities.isAdmin && room.adminMicPriorityActive -> "Admin on Mic"
-        !staffCapabilities.isAdmin && userProfile.disableMic -> "Mic Disabled"
-        isCurrentlyInvisible && !staffCapabilities.isAdmin -> "Visible Req."
-        isMuted -> "Muted"
-        !staffCapabilities.isAdmin && room.stageMicLocked && !room.hasModPrivileges(currentUserId, staffCapabilities.tier) -> "Mics Locked"
-        else -> null
-    }
-    val micAllowed = micBlockedReason == null
-    val camAllowed = room.videoEnabled && !isCurrentlyInvisible && (staffCapabilities.isAdmin || !userProfile.disableVideo)
-
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 4.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = messageInput,
-                    onValueChange = onMessageInputChange,
-                    enabled = !isMuted,
-                    placeholder = {
-                        Text(
-                            text = when {
-                                isMuted -> "You are muted by moderators"
-                                slowModeCountdown > 0 -> "Slow mode (${slowModeCountdown}s)…"
-                                else -> "Message the room…"
-                            },
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("chat_message_input")
-                )
-
-                Surface(
-                    shape = CircleShape,
-                    color = if (messageInput.isNotBlank() && !isMuted && slowModeCountdown == 0) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clickable(
-                            enabled = messageInput.isNotBlank() && !isMuted && slowModeCountdown == 0,
-                            onClick = onSend
-                        )
-                        .testTag("send_message_button")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.Send,
-                            contentDescription = "Send message",
-                            tint = if (messageInput.isNotBlank() && !isMuted && slowModeCountdown == 0) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("👏", "🔥", "❤️", "🙌").forEach { emoji ->
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                            modifier = Modifier.clickable(enabled = !isMuted) { onSendReaction(emoji) }
-                        ) {
-                            Text(
-                                text = emoji,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier
-                        .clickable(onClick = onToggleMicMode)
-                        .testTag("toggle_ptt_mode_button")
-                ) {
-                    Text(
-                        text = if (pushToTalkMode) "Mode: Hold-to-Talk" else "Mode: Open Mic",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VoiceCyan,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = when {
-                        isCamActive -> LiveCoral
-                        !camAllowed -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                        else -> MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    modifier = Modifier
-                        .height(50.dp)
-                        .clickable(enabled = camAllowed, onClick = onToggleCamera)
-                        .testTag("toggle_camera_button")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = if (isCamActive) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
-                            contentDescription = "Toggle camera video",
-                            tint = if (isCamActive) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (isCamActive) "Cam On" else "Video",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (isCamActive) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                val micModifier = if (pushToTalkMode) {
-                    Modifier
-                        .weight(1f)
-                        .height(50.dp)
-                        .pointerInput(micAllowed) {
-                            detectTapGestures(
-                                onPress = {
-                                    if (micAllowed) {
-                                        onMicStateChange(true)
-                                        tryAwaitRelease()
-                                        onMicStateChange(false)
-                                    } else {
-                                        onMicStateChange(true)
-                                    }
-                                }
-                            )
-                        }
-                        .testTag("push_to_talk_button")
-                } else {
-                    Modifier
-                        .weight(1f)
-                        .height(50.dp)
-                        .clickable { onMicStateChange(!isMicActive) }
-                        .testTag("mic_toggle_button")
-                }
-
-                val adminRed = usernameColor(StaffTier.ADMIN)
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = when {
-                        !micAllowed -> MaterialTheme.colorScheme.errorContainer
-                        isMicActive && staffCapabilities.isAdmin -> adminRed
-                        isMicActive -> VoiceCyan
-                        else -> MaterialTheme.colorScheme.primaryContainer
-                    },
-                    modifier = micModifier
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = if (isMicActive) Icons.Rounded.Mic else Icons.Rounded.MicOff,
-                            contentDescription = "Microphone control",
-                            tint = when {
-                                !micAllowed -> MaterialTheme.colorScheme.onErrorContainer
-                                isMicActive && staffCapabilities.isAdmin -> Color.White
-                                isMicActive -> Color(0xFF002620)
-                                else -> MaterialTheme.colorScheme.onPrimaryContainer
-                            }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        if (isMicActive) {
-                            VoiceWaveformBars(
-                                amplitude = liveAmplitude,
-                                active = true,
-                                barColor = if (staffCapabilities.isAdmin) Color.White else Color(0xFF002620)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-                        Text(
-                            text = when {
-                                micBlockedReason != null -> micBlockedReason
-                                isMicActive && staffCapabilities.isAdmin && isCurrentlyInvisible -> "Admin Mic (Ghost)"
-                                isMicActive && staffCapabilities.isAdmin -> "Admin Priority Mic"
-                                isMicActive -> "Live Mic"
-                                pushToTalkMode -> "Hold to Talk"
-                                else -> "Tap to Speak"
-                            },
-                            style = MaterialTheme.typography.labelLarge,
-                            color = when {
-                                !micAllowed -> MaterialTheme.colorScheme.onErrorContainer
-                                isMicActive && staffCapabilities.isAdmin -> Color.White
-                                isMicActive -> Color(0xFF002620)
-                                else -> MaterialTheme.colorScheme.onPrimaryContainer
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (isHandRaised) ModAmber else MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier
-                        .size(50.dp)
-                        .clickable(enabled = !isCurrentlyInvisible, onClick = onToggleRaiseHand)
-                        .testTag("raise_hand_button")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (isHandRaised) Icons.Rounded.RecordVoiceOver else Icons.Rounded.WavingHand,
-                            contentDescription = "Raise hand to speak",
-                            tint = if (isHandRaised) Color(0xFF2B1B00) else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
+                                shape = RoundedCornerShape(99
