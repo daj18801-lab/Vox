@@ -60,6 +60,9 @@ class LiveKitStageManager(context: Context) {
     private val _connectionError = MutableStateFlow<String?>(null)
     val connectionError: StateFlow<String?> = _connectionError.asStateFlow()
 
+    private val _liveDebugInfo = MutableStateFlow("LK: Idle")
+    val liveDebugInfo: StateFlow<String> = _liveDebugInfo.asStateFlow()
+
     private fun enableCommunicationAudio(enable: Boolean) {
         try {
             val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -79,6 +82,7 @@ class LiveKitStageManager(context: Context) {
         if (connectedRoomId == roomId && (isRoomConnected || connectJob?.isActive == true)) return
         disconnect()
         connectedRoomId = roomId
+        _liveDebugInfo.value = "LK: Connecting to $roomId..."
 
         val tokenServerId = BuildConfig.LIVEKIT_TOKEN_SERVER_ID.trim().ifEmpty { "vox-2qnude" }
 
@@ -130,21 +134,12 @@ class LiveKitStageManager(context: Context) {
                 isRoomConnected = true
                 _connectionError.value = null
                 refreshTracks()
-                val remoteCount = room.remoteParticipants.size
-val remoteAudioTracks = room.remoteParticipants.values.sumOf { it.audioTrackPublications.size }
-val remoteVideoTracks = room.remoteParticipants.values.sumOf { it.videoTrackPublications.size }
-val localMicOn = room.localParticipant.isMicrophoneEnabled
-val localCamOn = room.localParticipant.isCameraEnabled
-_liveDebugInfo.value = "Room:${room.name ?: "?"} | Remotes:$remoteCount (A:$remoteAudioTracks V:$remoteVideoTracks) | Local(M:$localMicOn C:$localCamOn)"
-
-                private val _liveDebugInfo = MutableStateFlow("LK: Connecting...")
-val liveDebugInfo: StateFlow<String> = _liveDebugInfo.asStateFlow()
-
                 startSpeakingLevelLoop()
             } catch (e: Exception) {
                 Log.e(TAG, "LiveKit connect failed", e)
                 isRoomConnected = false
                 connectedRoomId = null
+                _liveDebugInfo.value = "LK Error: ${e.message}"
                 _connectionError.value = "Media server error: ${e.message}"
             }
         }
@@ -164,6 +159,7 @@ val liveDebugInfo: StateFlow<String> = _liveDebugInfo.asStateFlow()
             enableCommunicationAudio(true)
             room.localParticipant.setMicrophoneEnabled(enabled)
             if (!enabled) _speakingAmplitude.value = 0f
+            refreshTracks()
         } catch (e: Exception) {
             Log.w(TAG, "Failed toggling mic: ${e.message}")
             _connectionError.value = "Mic publish error: ${e.message}"
@@ -215,9 +211,11 @@ val liveDebugInfo: StateFlow<String> = _liveDebugInfo.asStateFlow()
         _localVideoTrack.value = if (room.localParticipant.isCameraEnabled) localCam else null
 
         val remotes = room.remoteParticipants.values.mapNotNull { remote ->
-            val pub = remote.getTrackPublication(Track.Source.CAMERA)
-            val vTrack = pub?.track as? VideoTrack
-            if (vTrack != null && !pub.muted) {
+            val videoPair = remote.videoTrackPublications.firstOrNull { (pub, track) ->
+                track is VideoTrack && !pub.muted
+            }
+            val vTrack = videoPair?.second as? VideoTrack
+            if (vTrack != null) {
                 RemoteVideoFeed(
                     userId = remote.identity?.value ?: remote.sid.value,
                     displayName = remote.name ?: "Speaker",
@@ -228,6 +226,13 @@ val liveDebugInfo: StateFlow<String> = _liveDebugInfo.asStateFlow()
             }
         }
         _remoteVideoFeeds.value = remotes
+
+        val remoteCount = room.remoteParticipants.size
+        val remoteAudioTracks = room.remoteParticipants.values.sumOf { it.audioTrackPublications.size }
+        val remoteVideoTracks = room.remoteParticipants.values.sumOf { it.videoTrackPublications.size }
+        val localMicOn = room.localParticipant.isMicrophoneEnabled
+        val localCamOn = room.localParticipant.isCameraEnabled
+        _liveDebugInfo.value = "Room:${room.name ?: "?"} | Remotes:$remoteCount (A:$remoteAudioTracks V:$remoteVideoTracks) | Local(M:$localMicOn C:$localCamOn)"
     }
 
     private fun startSpeakingLevelLoop() {
@@ -257,6 +262,7 @@ val liveDebugInfo: StateFlow<String> = _liveDebugInfo.asStateFlow()
         _localVideoTrack.value = null
         _remoteVideoFeeds.value = emptyList()
         _speakingAmplitude.value = 0f
+        _liveDebugInfo.value = "LK: Disconnected"
         enableCommunicationAudio(false)
         try {
             lkRoom?.disconnect()
