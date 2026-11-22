@@ -31,14 +31,31 @@ jobs:
           echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> local.properties
           echo "GEMINI_API_KEY=$GEMINI_API_KEY" > .env
 
-      - name: Prepare keystore & build APK
+      - name: Prepare keystore & Firebase resource, then build APK
         run: |
           sed -i '/foojay-resolver-convention/d' settings.gradle.kts
 
-          # Generate debug.keystore in the repo root if missing
+          # 1. Generate debug.keystore in the repo root if missing
           if [ ! -f debug.keystore ]; then
-            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
+
+          # 2. Extract real Web Client ID from google-services.json if present, otherwise use placeholder
+          CLIENT_ID="000000000000-placeholder.apps.googleusercontent.com"
+          if [ -f app/google-services.json ]; then
+            EXTRACTED=$(python3 -c 'import json; d=json.load(open("app/google-services.json")); c=[o["client_id"] for x in d.get("client",[]) for o in x.get("oauth_client",[]) if o.get("client_type")==3]; print(c[0] if c else "")')
+            if [ -n "$EXTRACTED" ]; then
+              CLIENT_ID="$EXTRACTED"
+            fi
+          fi
+
+          mkdir -p app/src/main/res/values
+          cat << EOF > app/src/main/res/values/firebase_placeholder.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="default_web_client_id" translatable="false">$CLIENT_ID</string>
+          </resources>
+          EOF
 
           gradle assembleDebug
 
