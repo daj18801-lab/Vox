@@ -186,7 +186,8 @@ class LiveKitStageManager(context: Context) {
         meterJob = scope.launch {
             while (isActive) {
                 val local = lkRoom?.localParticipant
-                _speakingAmplitude.value = if (local != null && local.isMicrophoneEnabled()) {
+                _speakingAmplitude.value = if (local != null && local.isMicrophoneEnabled) {
+
                     local.audioLevel.coerceIn(0f, 1f)
                 } else {
                     0f
