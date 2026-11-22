@@ -37,21 +37,18 @@ jobs:
         run: |
           sed -i '/foojay-resolver-convention/d' settings.gradle.kts
 
-          # 1. Restore fixed debug.keystore from secret if available, otherwise generate one
           if [ -n "$DEBUG_KEYSTORE_B64" ]; then
             echo "$DEBUG_KEYSTORE_B64" | base64 -d > debug.keystore
           elif [ ! -f debug.keystore ]; then
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          # Print SHA-1 fingerprint and Base64 keystore so you can save them once
           echo "=== YOUR SHA-1 FINGERPRINT ==="
           keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android | grep "SHA1:"
-          echo "=== YOUR DEBUG_KEYSTORE_B64 (Save as GitHub Secret if not saved yet) ==="
+          echo "=== YOUR DEBUG_KEYSTORE_B64 ==="
           base64 -w 0 debug.keystore
           echo ""
 
-          # 2. Extract real Web Client ID from google-services.json if present
           CLIENT_ID="000000000000-placeholder.apps.googleusercontent.com"
           if [ -f app/google-services.json ]; then
             EXTRACTED=$(python3 -c 'import json; d=json.load(open("app/google-services.json")); c=[o["client_id"] for x in d.get("client",[]) for o in x.get("oauth_client",[]) if o.get("client_type")==3]; print(c[0] if c else "")')
