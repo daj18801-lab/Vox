@@ -200,4 +200,26 @@ class LiveKitStageManager(context: Context) {
         meterJob = null
         eventJob?.cancel()
         eventJob = null
-        connectedRoom
+                connectedRoomId = null
+        _localVideoTrack.value = null
+        _remoteVideoFeeds.value = emptyList()
+        _speakingAmplitude.value = 0f
+        try {
+            lkRoom?.disconnect()
+            lkRoom?.release()
+        } catch (_: Exception) {
+        }
+        lkRoom = null
+        _roomInstance.value = null
+    }
+
+    fun close() {
+        disconnect()
+        scope.cancel()
+    }
+
+    private companion object {
+        const val TAG = "LiveKitStageManager"
+    }
+}
+
