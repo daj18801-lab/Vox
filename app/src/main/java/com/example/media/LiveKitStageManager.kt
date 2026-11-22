@@ -130,6 +130,13 @@ class LiveKitStageManager(context: Context) {
                 isRoomConnected = true
                 _connectionError.value = null
                 refreshTracks()
+                val remoteCount = room.remoteParticipants.size
+val remoteAudioTracks = room.remoteParticipants.values.sumOf { it.audioTrackPublications.size }
+val remoteVideoTracks = room.remoteParticipants.values.sumOf { it.videoTrackPublications.size }
+val localMicOn = room.localParticipant.isMicrophoneEnabled
+val localCamOn = room.localParticipant.isCameraEnabled
+_liveDebugInfo.value = "Room:${room.name ?: "?"} | Remotes:$remoteCount (A:$remoteAudioTracks V:$remoteVideoTracks) | Local(M:$localMicOn C:$localCamOn)"
+
                 private val _liveDebugInfo = MutableStateFlow("LK: Connecting...")
 val liveDebugInfo: StateFlow<String> = _liveDebugInfo.asStateFlow()
 
