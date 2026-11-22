@@ -12,7 +12,20 @@
           "package_name": "com.aistudio.voxstage.rkmvqp"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "134871866614-vgtcgug039rhdl15ejnfs5j7id91lcf5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.voxstage.rkmvqp",
+            "certificate_hash": "7c1542224c463a48ec077ddb27d812b3865cd082"
+          }
+        },
+        {
+          "client_id": "134871866614-td7ij0dcc62lsm49j219s7gtvitajj4k.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDaq6w9pIQKSYIt1xr4_U1UZn0eRrC8rIk"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "134871866614-td7ij0dcc62lsm49j219s7gtvitajj4k.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
