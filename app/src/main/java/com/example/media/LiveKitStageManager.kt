@@ -11,6 +11,7 @@ import io.livekit.android.room.track.CameraPosition
 import io.livekit.android.room.track.LocalVideoTrack
 import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.VideoTrack
+import io.livekit.android.token.TokenRequestOptions
 import io.livekit.android.token.TokenSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -89,9 +90,11 @@ class LiveKitStageManager(context: Context) {
 
                 val tokenSource = TokenSource.fromDevelopmentTokenServer(tokenServerId)
                 val credentials = tokenSource.fetch(
-                    roomName = roomId,
-                    participantName = displayName.ifBlank { "Member" },
-                    participantIdentity = userId
+                    TokenRequestOptions(
+                        roomName = roomId,
+                        participantName = displayName.ifBlank { "Member" },
+                        participantIdentity = userId
+                    )
                 )
 
                 room.connect(
