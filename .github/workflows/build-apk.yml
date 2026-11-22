@@ -24,9 +24,24 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Build Debug APK
+      - name: Prepare missing keystore & Firebase resource, then build APK
         run: |
           sed -i '/foojay-resolver-convention/d' settings.gradle.kts
+
+          # 1. Generate debug.keystore in the repo root if missing
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          # 2. Generate default_web_client_id string resource if missing
+          mkdir -p app/src/main/res/values
+          cat << 'EOF' > app/src/main/res/values/firebase_placeholder.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="default_web_client_id" translatable="false">000000000000-placeholder.apps.googleusercontent.com</string>
+          </resources>
+          EOF
+
           gradle assembleDebug
 
       - name: Upload APK artifact
