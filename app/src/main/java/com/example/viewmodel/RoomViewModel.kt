@@ -59,6 +59,9 @@ class RoomViewModel(
 
     private val _remoteVideoFeeds = MutableStateFlow<List<RemoteVideoFeed>>(emptyList())
     val remoteVideoFeeds: StateFlow<List<RemoteVideoFeed>> = _remoteVideoFeeds.asStateFlow()
+   
+    private val _liveDebugInfo = MutableStateFlow("LK: Not attached")
+    val liveDebugInfo: StateFlow<String> = _liveDebugInfo.asStateFlow()
 
     private val _liveVoiceAmplitude = MutableStateFlow(0f)
     val liveVoiceAmplitude: StateFlow<Float> = _liveVoiceAmplitude.asStateFlow()
@@ -205,7 +208,10 @@ class RoomViewModel(
         }
     }
 
-    fun attachMediaContext(context: Context) {
+    fun attachMediaContext(context: Context)viewModelScope.launch {
+    manager.liveDebugInfo.collectLatest { _liveDebugInfo.value = it }
+}
+ {
         if (stageManager != null) return
         val manager = LiveKitStageManager(context)
         stageManager = manager
