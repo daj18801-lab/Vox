@@ -122,6 +122,11 @@ dependencies {
   // implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   // implementation(libs.retrofit)
+
+  // LiveKit real-time WebRTC audio & video streaming
+  implementation("io.livekit:livekit-android:2.30.0")
+  implementation("io.livekit:livekit-android-compose-components:2.4.2")
+
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
