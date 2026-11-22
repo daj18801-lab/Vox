@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "134871866614-94ckbe15cis33eftq6dcr6nv8bhcj2lo.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.voxstage.rkmvqp",
+            "certificate_hash": "cf25830509196ad70c90bb403739815ad89e1df7"
+          }
+        },
+        {
           "client_id": "134871866614-vgtcgug039rhdl15ejnfs5j7id91lcf5.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
