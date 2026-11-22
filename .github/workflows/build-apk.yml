@@ -27,9 +27,11 @@ jobs:
       - name: Inject API Secrets
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LIVEKIT_TOKEN_SERVER_ID: ${{ secrets.LIVEKIT_TOKEN_SERVER_ID }}
         run: |
           echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> local.properties
-          echo "GEMINI_API_KEY=$GEMINI_API_KEY" > .env
+          echo "LIVEKIT_TOKEN_SERVER_ID=$LIVEKIT_TOKEN_SERVER_ID" >> local.properties
+          printf "GEMINI_API_KEY=%s\nLIVEKIT_TOKEN_SERVER_ID=%s\n" "$GEMINI_API_KEY" "$LIVEKIT_TOKEN_SERVER_ID" > .env
 
       - name: Prepare keystore & Firebase resource, then build APK
         env:
