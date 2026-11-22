@@ -1,5 +1,6 @@
 package com.example.viewmodel
 
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,7 +21,10 @@ import com.example.data.UiState
 import com.example.data.UserProfile
 import com.example.data.VoxStageRepository
 import com.example.data.unwrapFirestoreError
-import com.example.media.VoiceMeterEngine
+import com.example.media.LiveKitStageManager
+import com.example.media.RemoteVideoFeed
+import io.livekit.android.room.Room
+import io.livekit.android.room.track.VideoTrack
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -45,8 +49,19 @@ class RoomViewModel(
     initialStaffCapabilities: StaffCapabilities
 ) : ViewModel() {
 
-    private val voiceMeterEngine = VoiceMeterEngine()
-    val liveVoiceAmplitude: StateFlow<Float> = voiceMeterEngine.amplitude
+    private var stageManager: LiveKitStageManager? = null
+
+    private val _liveKitRoom = MutableStateFlow<Room?>(null)
+    val liveKitRoom: StateFlow<Room?> = _liveKitRoom.asStateFlow()
+
+    private val _localVideoTrack = MutableStateFlow<VideoTrack?>(null)
+    val localVideoTrack: StateFlow<VideoTrack?> = _localVideoTrack.asStateFlow()
+
+    private val _remoteVideoFeeds = MutableStateFlow<List<RemoteVideoFeed>>(emptyList())
+    val remoteVideoFeeds: StateFlow<List<RemoteVideoFeed>> = _remoteVideoFeeds.asStateFlow()
+
+    private val _liveVoiceAmplitude = MutableStateFlow(0f)
+    val liveVoiceAmplitude: StateFlow<Float> = _liveVoiceAmplitude.asStateFlow()
 
     private val _staffCapabilities = MutableStateFlow(initialStaffCapabilities)
     val staffCapabilities: StateFlow<StaffCapabilities> = _staffCapabilities.asStateFlow()
@@ -143,7 +158,6 @@ class RoomViewModel(
             )
 
     init {
-        // React immediately if room locks mic, mutes user, closes, or bans user
         viewModelScope.launch {
             roomState.collectLatest { state ->
                 val room = (state as? UiState.Success)?.data ?: return@collectLatest
@@ -175,7 +189,6 @@ class RoomViewModel(
             }
         }
 
-        // Detect live Bounce / Kick (participant doc removed remotely while user is inside)
         viewModelScope.launch {
             participantsState.collectLatest { state ->
                 val list = (state as? UiState.Success)?.data ?: return@collectLatest
@@ -192,12 +205,42 @@ class RoomViewModel(
         }
     }
 
+    fun attachMediaContext(context: Context) {
+        if (stageManager != null) return
+        val manager = LiveKitStageManager(context)
+        stageManager = manager
+
+        viewModelScope.launch {
+            manager.roomInstance.collectLatest { _liveKitRoom.value = it }
+        }
+        viewModelScope.launch {
+            manager.localVideoTrack.collectLatest { _localVideoTrack.value = it }
+        }
+        viewModelScope.launch {
+            manager.remoteVideoFeeds.collectLatest { _remoteVideoFeeds.value = it }
+        }
+        viewModelScope.launch {
+            manager.speakingAmplitude.collectLatest { _liveVoiceAmplitude.value = it }
+        }
+        viewModelScope.launch {
+            manager.connectionError.collectLatest { err ->
+                if (!err.isNullOrBlank()) _events.tryEmit(err)
+            }
+        }
+
+        latestProfile?.let { profile ->
+            manager.connectIfNeeded(roomId, currentUserId, profile.displayName)
+        }
+    }
+
     fun updateStaffCapabilities(caps: StaffCapabilities) {
         _staffCapabilities.value = caps
     }
 
     fun onUserProfileUpdated(profile: UserProfile) {
         latestProfile = profile
+        stageManager?.connectIfNeeded(roomId, currentUserId, profile.displayName)
+
         if (_staffCapabilities.value.isAdmin) return
 
         if (profile.globallyBanned && !isLeavingVoluntarily) {
@@ -231,6 +274,7 @@ class RoomViewModel(
 
     fun ensureJoined(room: ChatRoom, profile: UserProfile) {
         latestProfile = profile
+        stageManager?.connectIfNeeded(roomId, currentUserId, profile.displayName)
         if (hasJoinedRoom) return
         hasJoinedRoom = true
         _pushToTalkMode.value = profile.pushToTalkPreferred
@@ -267,11 +311,10 @@ class RoomViewModel(
         viewModelScope.launch {
             if (next) {
                 if (caps.isAdmin) {
-                    // Main Administrator can stay on the mic while invisible; only disable video & raised hand
                     _isCamActive.value = false
                     _isHandRaised.value = false
+                    stageManager?.setCameraEnabled(false, _useFrontCamera.value)
                 } else {
-                    // Support staff must be visible to use the microphone
                     stopHardwareCapture()
                 }
             }
@@ -349,13 +392,16 @@ class RoomViewModel(
                 )
             }
         }
+
+        viewModelScope.launch {
+            stageManager?.setMicrophoneEnabled(active)
+        }
+
         if (active) {
-            voiceMeterEngine.start(viewModelScope)
             startLevelSyncLoop()
         } else {
             levelSyncJob?.cancel()
             levelSyncJob = null
-            voiceMeterEngine.stop()
             syncMediaStateNow(0.0)
         }
     }
@@ -380,11 +426,18 @@ class RoomViewModel(
             }
         }
         _isCamActive.value = active
+        viewModelScope.launch {
+            stageManager?.setCameraEnabled(active, _useFrontCamera.value)
+        }
         syncMediaStateNow(if (_isMicActive.value) liveVoiceAmplitude.value.toDouble() else 0.0)
     }
 
     fun flipCamera() {
-        _useFrontCamera.value = !_useFrontCamera.value
+        val nextFront = !_useFrontCamera.value
+        _useFrontCamera.value = nextFront
+        viewModelScope.launch {
+            stageManager?.switchCamera(nextFront)
+        }
     }
 
     fun toggleRaiseHand() {
@@ -920,14 +973,15 @@ class RoomViewModel(
     private fun stopHardwareCapture() {
         levelSyncJob?.cancel()
         levelSyncJob = null
-        voiceMeterEngine.stop()
         _isMicActive.value = false
         _isCamActive.value = false
+        stageManager?.disconnect()
     }
 
     override fun onCleared() {
         super.onCleared()
         stopHardwareCapture()
+        stageManager?.close()
         slowModeJob?.cancel()
     }
 
