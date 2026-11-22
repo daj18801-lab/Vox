@@ -130,6 +130,9 @@ class LiveKitStageManager(context: Context) {
                 isRoomConnected = true
                 _connectionError.value = null
                 refreshTracks()
+                private val _liveDebugInfo = MutableStateFlow("LK: Connecting...")
+val liveDebugInfo: StateFlow<String> = _liveDebugInfo.asStateFlow()
+
                 startSpeakingLevelLoop()
             } catch (e: Exception) {
                 Log.e(TAG, "LiveKit connect failed", e)
