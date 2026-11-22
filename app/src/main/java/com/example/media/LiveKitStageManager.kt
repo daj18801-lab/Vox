@@ -162,7 +162,8 @@ class LiveKitStageManager(context: Context) {
         val room = lkRoom ?: return
         val localCam = room.localParticipant
             .getTrackPublication(Track.Source.CAMERA)?.track as? VideoTrack
-        _localVideoTrack.value = if (room.localParticipant.isCameraEnabled()) localCam else null
+        _localVideoTrack.value = if (room.localParticipant.isCameraEnabled) localCam else null
+
 
         val remotes = room.remoteParticipants.values.mapNotNull { remote ->
             val pub = remote.getTrackPublication(Track.Source.CAMERA)
